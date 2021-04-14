@@ -1,5 +1,3 @@
-#from  https://github.com/tobiasfshr/MOTSFusion/blob/master/visualization/vtkVisualization.py
-
 import numpy as np
 import vtk
 
