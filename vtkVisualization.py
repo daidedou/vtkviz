@@ -71,6 +71,17 @@ class VTKFile(VTKEntity3D):
         self.polydata.ShallowCopy(poly)
         self.polydata.Modified()
 
+        
+class VTKPoly(VTKEntity3D):
+    def __init__(self, poly):
+        self.polydata=poly
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputData(poly)
+        super().__init__(mapper)
+    def update_poly(self, poly):
+        self.polydata.ShallowCopy(poly)
+        self.polydata.Modified()
+
 
 class VTKPointCloud(VTKEntity3D):
     def __init__(self, points: np.ndarray=None, colors: np.ndarray=None):
