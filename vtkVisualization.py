@@ -199,7 +199,6 @@ class VTKVectorField(VTKEntity3D):
 
         glyph = vtk.vtkGlyph3D()
         glyph.SetInputData(grid)
-        #print(glyph.Scaling)
         glyph.SetSourceConnection(arrow.GetOutputPort())
         glyph.SetVectorModeToUseVector()
         #glyph.SetScaleModeToScaleByScalar()
@@ -233,7 +232,6 @@ class VTKVectorField(VTKEntity3D):
 
         # Add points
         for vector_idx in range(num_new_vectors):
-            print(vectors[vector_idx, :], np.linalg.norm(vectors[vector_idx, :]))
             self._positions.InsertNextPoint(positions[vector_idx, :])
             self._vectors.InsertNextTuple(vectors[vector_idx, :])
             self._vectors_norm.InsertNextValue(np.linalg.norm(vectors[vector_idx, :]))
