@@ -481,3 +481,58 @@ class VTKVisualization(object):
         # self.camera.SetClippingRange(0.0, 100000)
 
         self.renderer.SetActiveCamera(self.camera)
+
+class VTKMultipleVizualization(object):
+    # Not necessarily useful for everybody
+    # A class to vizualize multiple object in the same window
+    # Most ideas come from https://github.com/SRNFmatch/SRNFmatch_code/blob/master/src/input_output.py,
+    # PlotGeodesic (and other vizualization functions)
+    def __init__(self, N, sync=True):
+        q, r = np.divmod(N, 4)
+
+        if N <= 4:
+            L_ind = np.arange(N)
+            n_hwin = N
+            n_vwin = 1
+        elif N > 4 and N <= 8:
+            L_ind = np.arange(N)
+            n_hwin = 4
+            n_vwin = 2
+        else:
+            L_ind = np.linspace(0, N - 1, 8)
+            L_ind = np.rint(L_ind)
+            L_ind = L_ind.astype(int)
+            Nt = 8
+            n_hwin = 4
+            n_vwin = 2
+        self.L_ind = L_ind
+        self.window = vtk.vtkRenderWindow()
+
+        self.camera = vtk.vtkCamera()
+        self.camera.SetViewUp(0.0, 1.0, 0.0)
+        self.camera.SetPosition(0.0, 0.0, +2.5)
+        self.camera.SetFocalPoint(0.0, 0.0, 0.0)
+        # self.camera.SetClippingRange(0.0, 100000)"""
+        self.renderers = []
+        for i in range(N):
+            qi, ri = np.divmod(i, 4)
+            ren = vtk.vtkRenderer()
+            ren.SetBackground(0.5, 0.5, 0.5)
+            self.window.AddRenderer(ren)
+            ren.SetViewport(ri / n_hwin, 1 - (qi + 1) / n_vwin, (ri + 1) / n_hwin, 1 - qi / n_vwin)
+            self.renderers.append(ren)
+        if sync:
+            for i in range(N - 1):
+                self.renderers[i].SetActiveCamera(self.renderers[-1].GetActiveCamera())
+
+    def show(self):
+        self.window.Render()
+        #self.window.SetSize(1200, 800)
+        self.interactor = vtk.vtkRenderWindowInteractor()
+        self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+        self.interactor.SetRenderWindow(self.window)
+        self.interactor.Start()
+
+    def add_entities(self, entities):
+        for i, entity in enumerate(entities):
+            self.renderers[i].AddActor(entity.actor)
