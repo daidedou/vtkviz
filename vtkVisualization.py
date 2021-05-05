@@ -529,7 +529,7 @@ class VTKMultipleVizualization(object):
         self.camera.SetViewUp(0.0, 1.0, 0.0)
         self.camera.SetPosition(0.0, 0.0, +2.5)
         self.camera.SetFocalPoint(0.0, 0.0, 0.0)
-        # self.camera.SetClippingRange(0.0, 100000)"""
+        # self.camera.SetClippingRange(0.0, 10000)"""
         self.renderers = []
         for i in range(N):
             qi, ri = np.divmod(i, 4)
