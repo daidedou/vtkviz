@@ -267,10 +267,27 @@ class VTKSurface(VTKEntity3D):
 
         super().__init__(mapper)
         if color is None:
+            super().__init__(mapper)
             self.actor.GetProperty().SetColor(0.5, 0.5, 1.0)
-        else:
+        elif type(color)== list:
+            super().__init__(mapper)
             self.actor.GetProperty().SetColor(color[0], color[1], color[2])
-        self.actor.GetProperty().SetOpacity(0.5)
+        else:
+            colors_array = vtk.vtkDoubleArray()
+            for i in range(color.shape[0]):
+                colors_array.InsertNextValue(color[i])
+            self.surface_data.GetPointData().SetScalars(colors_array)
+            self.lut = vtk.vtkLookupTable()
+            range_data = self.surface_data.GetPointData().GetScalars().GetRange()
+            self.lut.SetTableRange(range_data)
+            self.lut.SetHueRange(0.1, 0.35)
+            self.lut.SetSaturationRange(.8, 1.)
+            self.lut.SetValueRange(0.7, 1.0)
+            mapper.SetLookupTable(self.lut)
+            mapper.SetScalarRange(range_data)
+            mapper.Update()
+            super().__init__(mapper)
+        self.actor.GetProperty().SetOpacity(1)
 
         self.add_vectors(vertices, faces)
 
