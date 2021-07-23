@@ -461,11 +461,14 @@ class VTKVisualization(object):
         img_actor.SetMapper(img_mapper)
         self.renderer.AddActor(img_actor)
 
-    def init(self):
+    def init(self, size=None):
         self.window = vtk.vtkRenderWindow()
         self.window.AddRenderer(self.renderer)
         self.window.Render()
-        self.window.SetSize(1200, 800)
+        if size is None:
+            self.window.SetSize(1200, 800)
+        else:
+            self.window.SetSize(size[0], size[1])
         self.interactor = vtk.vtkRenderWindowInteractor()
         self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
         self.interactor.SetRenderWindow(self.window)
@@ -474,16 +477,19 @@ class VTKVisualization(object):
 
         self.interactor.Start()
 
-    def write(self, filename):
+    def write(self, filename, size=None):
         self.window = vtk.vtkRenderWindow()
         self.window.AddRenderer(self.renderer)
         self.window.SetOffScreenRendering(1)
         self.window.SetAlphaBitPlanes(1)
-        self.window.SetSize(1800, 1800)
+        if size is None:
+            self.window.SetSize(1800, 1800)
+        else:
+            self.window.SetSize(size[0], size[1])
         windowToImageFilter = vtk.vtkWindowToImageFilter()
         windowToImageFilter.SetInput(self.window)
         windowToImageFilter.Update()
-        #windowToImageFilter.SetInputBufferTypeToRGBA()
+        windowToImageFilter.SetInputBufferTypeToRGBA()
 
         writer = vtk.vtkPNGWriter()
         writer.SetFileName(filename)
@@ -495,6 +501,8 @@ class VTKVisualization(object):
         self.camera.SetViewUp(view[0], view[1], view[2])
         self.camera.SetPosition(position[0], position[1], position[2])
         self.camera.SetFocalPoint(focal[0], focal[0], focal[0])
+        self.camera.Pitch(0)
+        self.camera.OrthogonalizeViewUp()
         # self.camera.SetClippingRange(0.0, 100000)
 
         self.renderer.SetActiveCamera(self.camera)
