@@ -272,7 +272,7 @@ class VTKSurface(VTKEntity3D):
         elif type(color)== list:
             super().__init__(mapper)
             self.actor.GetProperty().SetColor(color[0], color[1], color[2])
-        else:
+        elif len(color.shape) == 1:
             colors_array = vtk.vtkDoubleArray()
             for i in range(color.shape[0]):
                 colors_array.InsertNextValue(color[i])
@@ -287,6 +287,13 @@ class VTKSurface(VTKEntity3D):
             mapper.SetScalarRange(range_data)
             mapper.Update()
             super().__init__(mapper)
+        else:
+            colors_array = vtk.vtkUnsignedCharArray()
+            colors_array.SetNumberOfComponents(3)
+            for i in range(color.shape[0]):
+                colors_array.InsertTuple(i, color[i, :])
+            self.surface_data.GetPointData().SetScalars(colors_array)
+            #super.__init__(mapper)
         self.actor.GetProperty().SetOpacity(1)
 
         self.add_vectors(vertices, faces)
