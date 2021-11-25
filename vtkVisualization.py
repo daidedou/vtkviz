@@ -196,7 +196,6 @@ class VTKVectorField(VTKEntity3D):
         arrow.SetTipLength(0.3)
         arrow.SetTipRadius(0.1)
 
-
         glyph = vtk.vtkGlyph3D()
         glyph.SetInputData(grid)
         glyph.SetSourceConnection(arrow.GetOutputPort())
@@ -568,3 +567,6 @@ class VTKMultipleVizualization(object):
     def add_entities(self, entities):
         for i, entity in enumerate(entities):
             self.renderers[i].AddActor(entity.actor)
+
+    def add_entity(self, entity, i):
+        self.renderers[i].AddActor(entity.actor)
