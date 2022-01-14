@@ -161,7 +161,7 @@ class VTKHull(VTKEntity3D):
 
 
 class VTKVectorField(VTKEntity3D):
-    def __init__(self, positions: np.ndarray, vectors: np.ndarray):
+    def __init__(self, positions: np.ndarray, vectors: np.ndarray, color=[1, 0, 0]):
         self.num_vectors = 0
 
         # VTK position representation
@@ -189,6 +189,7 @@ class VTKVectorField(VTKEntity3D):
         grid = vtk.vtkPolyData()
         grid.SetPoints(self._positions)
         grid.GetPointData().SetVectors(self._vectors)
+
         #grid.GetPointData().SetScalars(self._vectors_norm)
 
         arrow = vtk.vtkArrowSource()
@@ -202,8 +203,9 @@ class VTKVectorField(VTKEntity3D):
         glyph.SetVectorModeToUseVector()
         #glyph.SetScaleModeToScaleByScalar()
         glyph.SetScaleModeToScaleByVector()
-        glyph.SetColorModeToColorByVector()
+        glyph.SetColorModeToColorByScalar()
         glyph.OrientOn()
+
         glyph.Update()
 
         # - Map the data representation to graphics primitives
@@ -212,6 +214,8 @@ class VTKVectorField(VTKEntity3D):
         mapper.SetInputConnection(glyph.GetOutputPort())
 
         super().__init__(mapper)
+        if color is not None:
+            self.actor.GetProperty().SetColor(color[0], color[1], color[2])
 
         self.add_vectors(positions, vectors)
 
