@@ -98,7 +98,6 @@ class VTKEntity3D(ABC):
 class VTKFile(VTKEntity3D):
     def __init__(self, filename, shade=False, angle_shade=0):
         polydata = ReadPolyData(filename)
-        print(type(polydata))
         if shade:
             normalGenerator = vtk.vtkPolyDataNormals()
             normalGenerator.SetInputData(polydata)
@@ -323,7 +322,6 @@ class VTKSurface(VTKEntity3D):
         normalGenerator.SetFeatureAngle(angle_shade)
         normalGenerator.Update()
         normalGenerator.SplittingOn()
-        print(type(self.surface_data))
         self.normals_data = vtk.vtkPolyData()
         self.normals_data.DeepCopy(normalGenerator.GetOutput())
 
@@ -343,8 +341,8 @@ class VTKSurface(VTKEntity3D):
         elif type(color)==str:
             img_data = ReadPolyData(color)
             if uv is None:
-                VT0 = gen_tex_coords(self.vertices)
-            self.surface_data.GetPointData().SetTCoords(numpy_to_vtk(VT0))
+                uv = gen_tex_coords(self.vertices)
+            self.surface_data.GetPointData().SetTCoords(numpy_to_vtk(uv))
             tu = vtk.vtkTexture()
             tu.SetInputData(img_data)
             tu.SetInterpolate(False)
