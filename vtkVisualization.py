@@ -365,6 +365,7 @@ class VTKSurface(VTKEntity3D):
             for i in range(color.shape[0]):
                 colors_array.InsertTuple(i, color[i, :])
             self.surface_data.GetPointData().SetScalars(colors_array)
+            mapper.ScalarVisibilityOn()
             #super.__init__(mapper)
         self.actor.GetProperty().SetOpacity(1)
 
