@@ -1,6 +1,6 @@
 import numpy as np
 import vtk
-from vtk.util.numpy_support import numpy_to_vtk
+from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 from abc import ABC
 
 # This is just that y and z may be inverted depending on what you are used to.
@@ -8,13 +8,22 @@ dir_x = np.array([1, 0, 0])
 dir_y = np.array([0, 0, 1])
 dir_z = np.array([0, 1, 0])
 
-def center_mesh_give_size(vertices):
-    prod = np.inner(vertices, dir_z)
+def get_p1p2(vertices, given_dir):
+    prod = np.inner(vertices, given_dir)
     p_max = np.amax(prod)
     p_min = np.amin(prod)
-    p1 = p_max + 0.1*(p_max-p_min)
-    p2 = p_min + 0.1*(p_min-p_max)
+    p1 = p_max + 0.1 * (p_max - p_min)
+    p2 = p_min + 0.1 * (p_min - p_max)
     return p1, p2
+def center_mesh_give_size(vertices, two_dirs=False):
+    p1_z, p2_z = get_p1p2(vertices, dir_z)
+    if two_dirs:
+        p1_x, p2_x = get_p1p2(vertices, dir_x)
+        if abs(p1_x - p2_x) > abs(p1_z - p2_z):
+            return p1_x, p2_x
+        else:
+            return p1_z, p2_z
+    return p1_z, p2_z
 
 
 def gen_tex_coords(vertices, axes=(0, 1)):
@@ -668,7 +677,7 @@ class VTKVisualization(object):
         img_actor.SetMapper(img_mapper)
         self.renderer.AddActor(img_actor)
 
-    def init(self, size=None):
+    def init(self, size=None, interact=False):
         self.window = vtk.vtkRenderWindow()
         self.window.AddRenderer(self.renderer)
         self.window.Render()
@@ -676,9 +685,10 @@ class VTKVisualization(object):
             self.window.SetSize(1200, 800)
         else:
             self.window.SetSize(size[0], size[1])
-        self.interactor = vtk.vtkRenderWindowInteractor()
-        self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
-        self.interactor.SetRenderWindow(self.window)
+        if interact:
+            self.interactor = vtk.vtkRenderWindowInteractor()
+            self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+            self.interactor.SetRenderWindow(self.window)
 
     def show(self):
 
