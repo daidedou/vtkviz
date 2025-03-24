@@ -206,6 +206,77 @@ class VTKPointCloud(VTKEntity3D):
         self.actor.GetProperty().SetPointSize(size)
 
 
+class VTKPointCloudSphere(VTKEntity3D):
+    def __init__(self, points: np.ndarray=None, colors: np.ndarray=None, scale=1):
+        assert (points is None and colors is None) or (points is not None and colors is not None)
+
+        self.num_points = 0
+
+        # VTK geometry representation
+        self._points = vtk.vtkPoints()
+
+        # VTK color representation
+        self._colors = vtk.vtkUnsignedCharArray()
+        self._colors.SetName("Colors")
+        self._colors.SetNumberOfComponents(3)
+        # Create scale factors (single value for all points)
+        self.scale_factors = vtk.vtkFloatArray()
+        self.scale_factors.SetNumberOfComponents(1)
+        self.scale_factors.SetName("Scale Factor")
+        self.scale = scale
+
+        # Visualization pipeline
+        # - Data source
+        point_data = vtk.vtkPolyData()
+        point_data.SetPoints(self._points)
+        point_data.GetPointData().AddArray(self._colors)
+        point_data.GetPointData().AddArray(self.scale_factors)
+
+        sphere_source = vtk.vtkSphereSource()
+        # sphere_source.SetThetaResolution(20)
+        # sphere_source.SetPhiResolution(20)
+        # - Automatically generate topology cells from points
+        glyph3D_mapper = vtk.vtkGlyph3DMapper()
+        glyph3D_mapper.SetSourceConnection(sphere_source.GetOutputPort())
+        glyph3D_mapper.SetInputData(point_data)
+        glyph3D_mapper.SetScaleModeToScaleByMagnitude()
+        glyph3D_mapper.SetScaleArray("Scale Factor")
+        glyph3D_mapper.SetScalarModeToUsePointFieldData()
+        glyph3D_mapper.SelectColorArray("Colors")
+        glyph3D_mapper.Update()
+
+        # - Map the data representation to graphics primitives
+
+        super().__init__(glyph3D_mapper)
+
+        self.add_points(points, colors)
+
+    def add_points(self, points: np.ndarray, colors: np.ndarray): #points, colors Nx3
+        assert len(points.shape) == 2
+        assert len(colors.shape) == 2
+        assert points.shape[0] == colors.shape[0]
+        assert points.shape[1] == 3
+        assert colors.shape[1] == 3
+
+        [num_new_points, _] = points.shape
+
+        # Allocate additional memory
+        self._points.Resize(self.num_points + num_new_points * 2)
+        self._colors.Resize(self.num_points + num_new_points * 2)
+
+        # Add points
+        for point_idx in range(num_new_points):
+            for _ in range(2):  # add every point twice due to vtk bug
+                self._points.InsertNextPoint(points[point_idx, :])
+                self._colors.InsertNextTuple(colors[point_idx, :])
+                self.scale_factors.InsertNextValue(self.scale)
+
+        self._points.Modified()
+        self._colors.Modified()
+
+    def set_point_size(self, size: int):
+        self.actor.GetProperty().SetPointSize(size)
+
 class VTKHull(VTKEntity3D):
     def __init__(self, convex_hull, color=None):
         # - convex hull is the result of delaunay triangulation
