@@ -1,5 +1,6 @@
 import numpy as np
 import vtk
+from vtk.util import numpy_support as VN
 
 from abc import ABC
 
@@ -52,6 +53,43 @@ class VTKEntity3D(ABC):
     @property
     def actor(self):
         return self._actor
+
+class VTKSlider:
+    def __init__(self, name, min_val=0., max_val=1.0, pos=(100, 700), length=300):
+        self.slideBar = vtk.vtkSliderRepresentation2D()
+
+        self.slideBar.SetMinimumValue(min_val)
+        self.slideBar.SetMaximumValue(max_val)
+        self.slideBar.SetTitleText(name)
+
+        self.slideBar.GetSliderProperty().SetColor(1, 1, 1)  # Couleur endroit select (quand pas cliqué)
+        self.slideBar.GetTitleProperty().SetColor(1, 0, 0)  # Couleur titre
+        self.slideBar.GetLabelProperty().SetColor(1, 0, 0)  # Couleur valeur select
+        self.slideBar.GetSelectedProperty().SetColor(1, 0, 0)  # Couleur endroit slider
+        self.slideBar.GetTubeProperty().SetColor(0, 1, 0)  # Slider fond
+        self.slideBar.GetCapProperty().SetColor(1, 1, 0)  # Extremités
+
+        self.slideBar.GetPoint1Coordinate().SetCoordinateSystemToDisplay()
+        self.slideBar.GetPoint1Coordinate().SetValue(pos[0], pos[1])  # Endroit dans la scène
+
+        self.slideBar.GetPoint2Coordinate().SetCoordinateSystemToDisplay()
+        self.slideBar.GetPoint2Coordinate().SetValue(pos[0]+length, pos[1])  # Endroit dans la scène
+
+    def enable_widget(self, interactor):
+        print("defining")
+        self.sliderWidget = vtk.vtkSliderWidget()
+        print("setting interactor")
+        self.sliderWidget.SetInteractor(interactor)
+        print("representation")
+        self.sliderWidget.SetRepresentation(self.slideBar)
+        print("enabling")
+        self.sliderWidget.EnabledOn()
+
+
+    def add_callback(self, callback):
+        self.sliderWidget.AddObserver("InteractionEvent", callback)
+
+
 
 
 class VTKFile(VTKEntity3D):
@@ -272,9 +310,13 @@ class VTKSurface(VTKEntity3D):
         if color is None:
             super().__init__(mapper)
             self.actor.GetProperty().SetColor(0.5, 0.5, 1.0)
+            self.actor.GetProperty().SetOpacity(1)
         elif type(color)== list:
             super().__init__(mapper)
             self.actor.GetProperty().SetColor(color[0], color[1], color[2])
+            if len(color) == 4:
+                print(color[3])
+                self.actor.GetProperty().SetOpacity(color[3])
         elif len(color.shape) == 1:
             colors_array = vtk.vtkDoubleArray()
             for i in range(color.shape[0]):
@@ -290,6 +332,7 @@ class VTKSurface(VTKEntity3D):
             mapper.SetScalarRange(range_data)
             mapper.Update()
             super().__init__(mapper)
+            self.actor.GetProperty().SetOpacity(1)
         else:
             colors_array = vtk.vtkUnsignedCharArray()
             colors_array.SetNumberOfComponents(3)
@@ -297,8 +340,11 @@ class VTKSurface(VTKEntity3D):
                 colors_array.InsertTuple(i, color[i, :])
             self.surface_data.GetPointData().SetScalars(colors_array)
             #super.__init__(mapper)
-        self.actor.GetProperty().SetOpacity(1)
-
+            self.actor.GetProperty().SetOpacity(1)
+        self.actor.GetProperty().SetAmbient(.5)
+        self.actor.GetProperty().SetSpecular(0.1)
+        self.actor.GetProperty().SetDiffuse(0.9)
+        self.actor.GetProperty().SetSpecularPower(20.0)
         self.add_vectors(vertices, faces)
 
     def add_vectors(self, vertices: np.ndarray, faces: np.ndarray):
@@ -308,20 +354,22 @@ class VTKSurface(VTKEntity3D):
         assert faces.shape[1] == 3
 
         # Add points
-        [num_vertices, _] = vertices.shape
-        for vertex_idx in range(num_vertices):
-            self._vertices.InsertNextPoint(vertices[vertex_idx, 0], vertices[vertex_idx, 1], vertices[vertex_idx, 2])
+        # [num_vertices, _] = vertices.shape
+        # for vertex_idx in range(num_vertices):
+        #     self._vertices.InsertNextPoint(vertices[vertex_idx, 0], vertices[vertex_idx, 1], vertices[vertex_idx, 2])
+        points = np.vstack(vertices)
+        vtkArray = VN.numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
+        self._vertices.SetData(vtkArray)
         [num_faces, _] = faces.shape
-        for face_idx in range(num_faces):
-            self._faces.InsertNextCell(3)
-            for corner_idx in range(3):
-                self._faces.InsertCellPoint(faces[face_idx, corner_idx])
-        # Allocate additional memory
-        self._vertices.Resize(self.num_vertices + num_vertices)
-        #self._faces.Resize(self.num_faces + num_faces*3)
-
+        insert_points = range(0, num_faces * 3, 3)
+        faces_vtk_format = np.insert(faces.ravel(), insert_points, 3).astype(np.int64)
+        vtkfacesArray = VN.numpy_to_vtkIdTypeArray(faces_vtk_format, deep=True)  # , deep=True)
+        self._faces.SetCells(faces.shape[0], vtkfacesArray)
+        self.surface_data.SetPolys(self._faces)
         self._vertices.Modified()
+
         self._faces.Modified()
+        self.surface_data.SetPolys(self._faces)
 
 
     def change_points(self, vertices: np.ndarray, faces: np.ndarray):
@@ -331,24 +379,27 @@ class VTKSurface(VTKEntity3D):
         assert faces.shape[1] == 3
 
         # Add points
-        verticesPoints = vtk.vtkPoints()
-        facesCells = vtk.vtkCellArray()
-        [num_vertices, _] = vertices.shape
-        for vertex_idx in range(num_vertices):
-            verticesPoints.InsertNextPoint(vertices[vertex_idx, 0], vertices[vertex_idx, 1], vertices[vertex_idx, 2])
-        [num_faces, _] = faces.shape
-        for face_idx in range(num_faces):
-            facesCells.InsertNextCell(3)
-            for corner_idx in range(3):
-                facesCells.InsertCellPoint(faces[face_idx, corner_idx])
-        # Allocate additional memory
-        verticesPoints.Resize(self.num_vertices + num_vertices)
-        # self._faces.Resize(self.num_faces + num_faces*3)
+        points = np.vstack(vertices)
+        vtkArray = VN.numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
+        self._vertices.SetData(vtkArray)
 
-        self._vertices.ShallowCopy(verticesPoints)
-        self._faces.ShallowCopy(facesCells)
+        insert_points = range(0, len(faces) * 3, 3)
+        faces_vtk_format = np.insert(faces.ravel(), insert_points, 3).astype(np.int64)
+        vtkfacesArray = VN.numpy_to_vtkIdTypeArray(faces_vtk_format, deep=True)  # , deep=True)
+        self._faces.SetCells(faces.shape[0], vtkfacesArray)
+        self.surface_data.SetPolys(self._faces)
         self._vertices.Modified()
+
         self._faces.Modified()
+        self.surface_data.SetPolys(self._faces)
+
+    def updateVertices(self, vertices):
+        assert vertices.shape[1] == 3
+        points = np.vstack(vertices)
+        vtkArray = VN.numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
+        self._vertices.SetData(vtkArray)
+        self._vertices.Modified()
+
 
 
 class VTKPlane(VTKEntity3D):
@@ -431,28 +482,27 @@ class VTKTubeLine(VTKEntity3D):
         else:
             self.actor.GetProperty().SetColor(color[0], color[1], color[2])
 
-
+from vtkmodules.vtkCommonColor import vtkNamedColors
+colors = vtkNamedColors()
+colors.SetColor('HighNoonSun', [255, 255, 251, 255])
+colors.SetColor('100W Tungsten', [255, 214, 170, 255])  #
 class VTKVisualization(object):
     def __init__(self):
         self.renderer = vtk.vtkRenderer()
-        self.renderer.SetBackground(0.5, 0.5, 0.5)
+        self.renderer.SetBackground(colors.GetColor3d('Silver'))#1., 1., .9)
         self.renderer.ResetCamera()
-
-        # axes_actor = vtk.vtkAxesActor()
-        # axes_actor.AxisLabelsOff()
-        # self.renderer.AddActor(axes_actor)
 
         self.window = None
 
         self.camera = vtk.vtkCamera()
         self.camera.SetViewUp(0.0, 1.0, 0.0)
-        self.camera.SetPosition(0.0, 0.0, +2.5)
+        self.camera.SetPosition(0.0, 0.0, +5)
         self.camera.SetFocalPoint(0.0, 0.0, 0.0)
         # self.camera.SetClippingRange(0.0, 100000)"""
 
         self.renderer.SetActiveCamera(self.camera)
 
-    def add_entity(self, entity: VTKEntity3D):
+    def add_entity(self, entity):
         self.renderer.AddActor(entity.actor)
 
     def add_image(self, image):
@@ -471,21 +521,30 @@ class VTKVisualization(object):
         img_actor.SetMapper(img_mapper)
         self.renderer.AddActor(img_actor)
 
-    def init(self, size=None):
-        self.window = vtk.vtkRenderWindow()
-        self.window.AddRenderer(self.renderer)
-        self.window.Render()
-        if size is None:
-            self.window.SetSize(1200, 800)
+    def init(self, interactor, size=None):
+        if interactor is None:
+            self.window = vtk.vtkRenderWindow()
+            self.window.AddRenderer(self.renderer)
+            self.window.Render()
+            if size is None:
+                self.window.SetSize(1200, 800)
+            else:
+                self.window.SetSize(size[0], size[1])
+            self.interactor = vtk.vtkRenderWindowInteractor()
+            self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+            self.interactor.SetRenderWindow(self.window)
+            self.iren = self.window.GetInteractor()
         else:
-            self.window.SetSize(size[0], size[1])
-        self.interactor = vtk.vtkRenderWindowInteractor()
-        self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
-        self.interactor.SetRenderWindow(self.window)
+            self.interactor = interactor
+            self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+            self.window = interactor.GetRenderWindow()
+            self.window.AddRenderer(self.renderer)
+            self.iren = self.window.GetInteractor()
 
     def show(self):
-
+        print("Showing!!")
         self.interactor.Start()
+        self.iren.Initialize()
 
     def write(self, filename, size=None):
         self.window = vtk.vtkRenderWindow()
@@ -506,6 +565,9 @@ class VTKVisualization(object):
         writer.SetInputConnection(windowToImageFilter.GetOutputPort())
         writer.Write()
 
+    def reset_camera(self):
+        self.renderer.ResetCamera()
+
     def change_camera(self, view, position, focal):
         self.camera = vtk.vtkCamera()
         self.camera.SetViewUp(view[0], view[1], view[2])
@@ -516,6 +578,7 @@ class VTKVisualization(object):
         # self.camera.SetClippingRange(0.0, 100000)
 
         self.renderer.SetActiveCamera(self.camera)
+
 
 class VTKMultipleVizualization(object):
     # Not necessarily useful for everybody
