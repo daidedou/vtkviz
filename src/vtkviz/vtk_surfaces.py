@@ -4,6 +4,24 @@ from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTyp
 import numpy as np
 from vtk.numpy_interface import dataset_adapter as dsa
 
+
+def poly_to_numpy(polydata):
+    # https://stackoverflow.com/a/50507141
+    vertices = dsa.WrapDataObject(polydata).Points
+    # We could actually use dsa.WrapDataObject(polydata).Polygons.reshape((-1, 4))[:, 1:]
+    # But I rather check if we have only triangles as vtk allows for more versatile structure
+    # https://stackoverflow.com/a/51371909
+    cells = polydata.GetPolys()
+    nCells = cells.GetNumberOfCells()
+    array = cells.GetData()
+    # This holds true if all polys are of the same kind, e.g. triangles.
+    assert (array.GetNumberOfValues() % nCells == 0)
+    nCols = array.GetNumberOfValues() // nCells
+    numpy_cells = vtk_to_numpy(array)
+    faces = numpy_cells.reshape((-1, nCols))[:, 1:]
+    return vertices, faces
+
+
 def decimate(surf_actor, verbose=False, reduction_factor=0.1):
     decimate = vtk.vtkQuadricDecimation()
     assert reduction_factor > 0 and reduction_factor <= 1, "reduction_factor should be between 0 and 1"
@@ -26,8 +44,7 @@ def decimate(surf_actor, verbose=False, reduction_factor=0.1):
                                                                       "There are " + str(
             polydata.GetNumberOfPolys()) + "polygons.\n")
     # https://stackoverflow.com/a/50507141
-    red_vertices = dsa.WrapDataObject(polydata).Points
-    red_faces = dsa.WrapDataObject(polydata).Polygons
+    red_vertices, red_faces = poly_to_numpy(polydata)
     return poly_actor, red_vertices, red_faces
 
 
