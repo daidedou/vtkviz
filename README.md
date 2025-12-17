@@ -1,6 +1,10 @@
 # vtkviz
 Some classes I use for plotting stuff on vtk
 
+```shell
+pip install git+ssh://git@github.com/daidedou/vtkviz.git
+```
+
 Most of the stuff comes from https://github.com/tobiasfshr/MOTSFusion/blob/master/visualization/vtkVisualization.py
 
 Dependencies: numpy and vtk
