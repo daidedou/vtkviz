@@ -1,4 +1,5 @@
-from vtkVisualization import *
+from vtkviz.vtk_surfaces import VTKSurface
+from vtkviz.renderer import VTKVisualization
 import numpy as np
 # Construction from
 # <http://blog.andreaskahler.com/2009/06/creating-icosphere-mesh-in-code.html>.
