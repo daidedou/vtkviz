@@ -1,3 +1,5 @@
 Add texture file that:
 - Either loads the well-known texture.png
 - Generate a texture image (à la Julien) and sends it as a numpy array
+
+Add surfaces.py - minimal class that loads any mesh into a well-defined Surface object.
