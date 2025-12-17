@@ -1,9 +1,49 @@
 import numpy as np
 import vtk
-from vtk.util import numpy_support as VN
-
+from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy, numpy_to_vtkIdTypeArray
 from abc import ABC
 
+# This is just that y and z may be inverted depending on what you are used to.
+dir_x = np.array([1, 0, 0])
+dir_y = np.array([0, 0, 1])
+dir_z = np.array([0, 1, 0])
+
+def get_p1p2(vertices, given_dir):
+    prod = np.inner(vertices, given_dir)
+    p_max = np.amax(prod)
+    p_min = np.amin(prod)
+    p1 = p_max + 0.1 * (p_max - p_min)
+    p2 = p_min + 0.1 * (p_min - p_max)
+    return p1, p2
+def center_mesh_give_size(vertices, two_dirs=False):
+    p1_z, p2_z = get_p1p2(vertices, dir_z)
+    if two_dirs:
+        p1_x, p2_x = get_p1p2(vertices, dir_x)
+        if abs(p1_x - p2_x) > abs(p1_z - p2_z):
+            return p1_x, p2_x
+        else:
+            return p1_z, p2_z
+    return p1_z, p2_z
+
+
+def gen_tex_coords(vertices, axes=(0, 1)):
+    """
+    Ref:
+    - https://github.com/llorz/SGA19_zoomOut/blob/master/utils/%2BMESH/%2BMESH_IO/generate_tex_coords.m
+
+    Args:
+        vertices (np.ndarray): (V, 3)
+        axes (tuple): plane of axes[0] and axes[1]
+
+    Returns:
+        np.ndarray: (V, 2)
+    """
+    vt = vertices[:, axes]  # (V, 2)
+    vt = vt - np.amin(vt, axis=0, keepdims=True)
+    vt = vt / np.amax(vt)
+    # Offset
+    vt = ((vt * 2 - 1) * 0.9 + 1) / 2
+    return vt
 
 def ReadPolyData(file_name):
     import os
@@ -43,6 +83,15 @@ def ReadPolyData(file_name):
         # Return a None if the extension is unknown.
         poly_data = None
     return poly_data
+
+def ReadImage(file_name):
+    if ".png" in file_name:
+        reader = vtk.vtkPNGReader()
+    else:
+        reader = vtk.vtkJPEGReader()
+    reader.SetFileName(file_name)
+    reader.Update()
+    return reader.GetOutput()
 
 
 class VTKEntity3D(ABC):
@@ -93,8 +142,21 @@ class VTKSlider:
 
 
 class VTKFile(VTKEntity3D):
-    def __init__(self, filename):
-        self.polydata = ReadPolyData(filename)
+    def __init__(self, filename, shade=False, angle_shade=0):
+        polydata = ReadPolyData(filename)
+        if shade:
+            normalGenerator = vtk.vtkPolyDataNormals()
+            normalGenerator.SetInputData(polydata)
+            normalGenerator.ComputePointNormalsOn()
+            normalGenerator.SetFeatureAngle(angle_shade)
+            normalGenerator.Update()
+            normalGenerator.SplittingOn()
+
+            normalsPolyData = vtk.vtkPolyData()
+            normalsPolyData.DeepCopy(normalGenerator.GetOutput())
+            self.polydata = normalsPolyData
+        else:
+            self.polydata = polydata
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputData(self.polydata)
 
@@ -181,6 +243,77 @@ class VTKPointCloud(VTKEntity3D):
     def set_point_size(self, size: int):
         self.actor.GetProperty().SetPointSize(size)
 
+
+class VTKPointCloudSphere(VTKEntity3D):
+    def __init__(self, points: np.ndarray=None, colors: np.ndarray=None, scale=1):
+        assert (points is None and colors is None) or (points is not None and colors is not None)
+
+        self.num_points = 0
+
+        # VTK geometry representation
+        self._points = vtk.vtkPoints()
+
+        # VTK color representation
+        self._colors = vtk.vtkUnsignedCharArray()
+        self._colors.SetName("Colors")
+        self._colors.SetNumberOfComponents(3)
+        # Create scale factors (single value for all points)
+        self.scale_factors = vtk.vtkFloatArray()
+        self.scale_factors.SetNumberOfComponents(1)
+        self.scale_factors.SetName("Scale Factor")
+        self.scale = scale
+
+        # Visualization pipeline
+        # - Data source
+        point_data = vtk.vtkPolyData()
+        point_data.SetPoints(self._points)
+        point_data.GetPointData().AddArray(self._colors)
+        point_data.GetPointData().AddArray(self.scale_factors)
+
+        sphere_source = vtk.vtkSphereSource()
+        # sphere_source.SetThetaResolution(20)
+        # sphere_source.SetPhiResolution(20)
+        # - Automatically generate topology cells from points
+        glyph3D_mapper = vtk.vtkGlyph3DMapper()
+        glyph3D_mapper.SetSourceConnection(sphere_source.GetOutputPort())
+        glyph3D_mapper.SetInputData(point_data)
+        glyph3D_mapper.SetScaleModeToScaleByMagnitude()
+        glyph3D_mapper.SetScaleArray("Scale Factor")
+        glyph3D_mapper.SetScalarModeToUsePointFieldData()
+        glyph3D_mapper.SelectColorArray("Colors")
+        glyph3D_mapper.Update()
+
+        # - Map the data representation to graphics primitives
+
+        super().__init__(glyph3D_mapper)
+
+        self.add_points(points, colors)
+
+    def add_points(self, points: np.ndarray, colors: np.ndarray): #points, colors Nx3
+        assert len(points.shape) == 2
+        assert len(colors.shape) == 2
+        assert points.shape[0] == colors.shape[0]
+        assert points.shape[1] == 3
+        assert colors.shape[1] == 3
+
+        [num_new_points, _] = points.shape
+
+        # Allocate additional memory
+        self._points.Resize(self.num_points + num_new_points * 2)
+        self._colors.Resize(self.num_points + num_new_points * 2)
+
+        # Add points
+        for point_idx in range(num_new_points):
+            for _ in range(2):  # add every point twice due to vtk bug
+                self._points.InsertNextPoint(points[point_idx, :])
+                self._colors.InsertNextTuple(colors[point_idx, :])
+                self.scale_factors.InsertNextValue(self.scale)
+
+        self._points.Modified()
+        self._colors.Modified()
+
+    def set_point_size(self, size: int):
+        self.actor.GetProperty().SetPointSize(size)
 
 class VTKHull(VTKEntity3D):
     def __init__(self, convex_hull, color=None):
@@ -283,10 +416,140 @@ class VTKVectorField(VTKEntity3D):
 
 
 class VTKSurface(VTKEntity3D):
-    def __init__(self, vertices: np.ndarray, faces: np.ndarray, color=None):
+    def __init__(self, vertices: np.ndarray, faces: np.ndarray, color=None, uv=None, shade=False, angle_shade=0.):
         self.num_vertices = 0
         self.num_faces = 0
 
+        # VTK point cloud representation
+        self._vertices = vtk.vtkPoints()
+
+        # VTK polygone(surface) representation
+        self._faces = vtk.vtkCellArray()
+
+        # Visualization Pipeline
+        # - Data source
+        self.surface_data = vtk.vtkPolyData()
+        self.surface_data.SetPoints(self._vertices)
+        self.surface_data.SetPolys(self._faces)
+
+        # - Add the vector arrays as 3D Glyphs
+        self.normalGenerator = vtk.vtkPolyDataNormals()
+        self.normalGenerator.SetInputData(self.surface_data)
+        self.normalGenerator.ComputePointNormalsOn()
+        self.normalGenerator.SetFeatureAngle(angle_shade)
+        self.normalGenerator.Update()
+        self.normalGenerator.SplittingOn()
+        self.normals_data = self.normalGenerator.GetOutput()
+
+        # - Map the data representation to graphics primitives
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputData(self.normals_data)
+        mapper.ScalarVisibilityOff()
+
+        super().__init__(mapper)
+        if color is None:
+            super().__init__(mapper)
+            self.actor.GetProperty().SetColor(0.5, 0.5, 1.0)
+        elif type(color)== list:
+            super().__init__(mapper)
+            self.actor.GetProperty().SetColor(color[0], color[1], color[2])
+        elif type(color)==str:
+            if uv is None:
+                uv = gen_tex_coords(vertices)
+            self.surface_data.GetPointData().SetTCoords(numpy_to_vtk(uv))
+            img_data = ReadImage(color)
+            tu = vtk.vtkTexture()
+            tu.SetInputData(img_data)
+            tu.SetInterpolate(False)
+            self.actor.SetTexture(tu)
+        elif len(color.shape) == 1:
+            colors_array = vtk.vtkDoubleArray()
+            for i in range(color.shape[0]):
+                colors_array.InsertNextValue(color[i])
+            self.surface_data.GetPointData().SetScalars(colors_array)
+            self.lut = vtk.vtkLookupTable()
+            range_data = self.surface_data.GetPointData().GetScalars().GetRange()
+            self.lut.SetTableRange(range_data)
+            self.lut.SetHueRange(0.1, 0.35)
+            self.lut.SetSaturationRange(.8, 1.)
+            self.lut.SetValueRange(0.7, 1.0)
+            mapper.SetLookupTable(self.lut)
+            mapper.SetScalarRange(range_data)
+            mapper.Update()
+            super().__init__(mapper)
+        else:
+            colors_array = vtk.vtkUnsignedCharArray()
+            colors_array.SetNumberOfComponents(3)
+            for i in range(color.shape[0]):
+                colors_array.InsertTuple(i, color[i, :])
+            self.surface_data.GetPointData().SetScalars(colors_array)
+            mapper.ScalarVisibilityOn()
+            #super.__init__(mapper)
+        self.actor.GetProperty().SetOpacity(1)
+
+        if shade:
+            self.actor.GetProperty().SetInterpolationToGouraud()
+        else:
+            self.actor.GetProperty().SetInterpolationToFlat()
+
+        self.add_vectors(vertices, faces)
+
+    def add_vectors(self, vertices: np.ndarray, faces: np.ndarray):
+        assert len(vertices.shape) == 2
+        assert len(faces.shape) == 2
+        assert vertices.shape[1] == 3
+        assert faces.shape[1] == 3
+
+        # Add points
+        [num_vertices, _] = vertices.shape
+        for vertex_idx in range(num_vertices):
+            self._vertices.InsertNextPoint(vertices[vertex_idx, 0], vertices[vertex_idx, 1], vertices[vertex_idx, 2])
+        [num_faces, _] = faces.shape
+        for face_idx in range(num_faces):
+            self._faces.InsertNextCell(3)
+            for corner_idx in range(3):
+                self._faces.InsertCellPoint(faces[face_idx, corner_idx])
+        # Allocate additional memory
+        self._vertices.Resize(self.num_vertices + num_vertices)
+        #self._faces.Resize(self.num_faces + num_faces*3)
+
+        self._vertices.Modified()
+        self._faces.Modified()
+        self.normalGenerator.Update()
+
+
+    def change_points(self, vertices: np.ndarray, faces: np.ndarray):
+        assert len(vertices.shape) == 2
+        assert len(faces.shape) == 2
+        assert vertices.shape[1] == 3
+        assert faces.shape[1] == 3
+
+        # Add points
+        verticesPoints = vtk.vtkPoints()
+        facesCells = vtk.vtkCellArray()
+        [num_vertices, _] = vertices.shape
+        for vertex_idx in range(num_vertices):
+            verticesPoints.InsertNextPoint(vertices[vertex_idx, 0], vertices[vertex_idx, 1], vertices[vertex_idx, 2])
+        [num_faces, _] = faces.shape
+        for face_idx in range(num_faces):
+            facesCells.InsertNextCell(3)
+            for corner_idx in range(3):
+                facesCells.InsertCellPoint(faces[face_idx, corner_idx])
+        # Allocate additional memory
+        verticesPoints.Resize(self.num_vertices + num_vertices)
+        # self._faces.Resize(self.num_faces + num_faces*3)
+
+        self._vertices.ShallowCopy(verticesPoints)
+        self._faces.ShallowCopy(facesCells)
+        self._vertices.Modified()
+        self._faces.Modified()
+        self.normalGenerator.Update()
+
+class VTKSurfaceOld(VTKEntity3D):
+    def __init__(self, vertices: np.ndarray, faces: np.ndarray, VT0:np.ndarray, p2pmap:np.array, color=None):
+        self.num_vertices = 0
+        self.num_faces = 0
+        self.VT0 = VT0
         # VTK point cloud representation
         self._vertices = vtk.vtkPoints()
 
@@ -311,12 +574,23 @@ class VTKSurface(VTKEntity3D):
             super().__init__(mapper)
             self.actor.GetProperty().SetColor(0.5, 0.5, 1.0)
             self.actor.GetProperty().SetOpacity(1)
-        elif type(color)== list:
+        elif type(color) == list:
             super().__init__(mapper)
             self.actor.GetProperty().SetColor(color[0], color[1], color[2])
             if len(color) == 4:
-                print(color[3])
+                print("Setting opacity: ", color[3])
                 self.actor.GetProperty().SetOpacity(color[3])
+        elif type(color) == str:
+            # reader = vtk.vtkPNGReader()
+            # reader.SetFileName(color)
+            # reader.Update()
+            img_data = ReadImage(color)
+            self.VT0 = gen_tex_coords(vertices)
+            self.surface_data.GetPointData().SetTCoords(numpy_to_vtk(self.VT0[p2pmap]))
+            tu = vtk.vtkTexture()
+            tu.SetInputData(img_data)
+            tu.SetInterpolate(False)
+            self._actor.SetTexture(tu)
         elif len(color.shape) == 1:
             colors_array = vtk.vtkDoubleArray()
             for i in range(color.shape[0]):
@@ -354,16 +628,13 @@ class VTKSurface(VTKEntity3D):
         assert faces.shape[1] == 3
 
         # Add points
-        # [num_vertices, _] = vertices.shape
-        # for vertex_idx in range(num_vertices):
-        #     self._vertices.InsertNextPoint(vertices[vertex_idx, 0], vertices[vertex_idx, 1], vertices[vertex_idx, 2])
         points = np.vstack(vertices)
-        vtkArray = VN.numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
+        vtkArray = numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
         self._vertices.SetData(vtkArray)
         [num_faces, _] = faces.shape
         insert_points = range(0, num_faces * 3, 3)
         faces_vtk_format = np.insert(faces.ravel(), insert_points, 3).astype(np.int64)
-        vtkfacesArray = VN.numpy_to_vtkIdTypeArray(faces_vtk_format, deep=True)  # , deep=True)
+        vtkfacesArray = numpy_to_vtkIdTypeArray(faces_vtk_format, deep=True)  # , deep=True)
         self._faces.SetCells(faces.shape[0], vtkfacesArray)
         self.surface_data.SetPolys(self._faces)
         self._vertices.Modified()
@@ -380,12 +651,12 @@ class VTKSurface(VTKEntity3D):
 
         # Add points
         points = np.vstack(vertices)
-        vtkArray = VN.numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
+        vtkArray = numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
         self._vertices.SetData(vtkArray)
 
         insert_points = range(0, len(faces) * 3, 3)
         faces_vtk_format = np.insert(faces.ravel(), insert_points, 3).astype(np.int64)
-        vtkfacesArray = VN.numpy_to_vtkIdTypeArray(faces_vtk_format, deep=True)  # , deep=True)
+        vtkfacesArray = numpy_to_vtkIdTypeArray(faces_vtk_format, deep=True)  # , deep=True)
         self._faces.SetCells(faces.shape[0], vtkfacesArray)
         self.surface_data.SetPolys(self._faces)
         self._vertices.Modified()
@@ -396,11 +667,13 @@ class VTKSurface(VTKEntity3D):
     def updateVertices(self, vertices):
         assert vertices.shape[1] == 3
         points = np.vstack(vertices)
-        vtkArray = VN.numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
+        vtkArray = numpy_to_vtk(np.ascontiguousarray(points), deep=True)  # , deep=True)
         self._vertices.SetData(vtkArray)
         self._vertices.Modified()
 
-
+    def updateTexture(self, p2pmap):
+        VT1 = self.VT0[p2pmap]
+        self.surface_data.GetPointData().SetTCoords(numpy_to_vtk(VT1))
 
 class VTKPlane(VTKEntity3D):
     def __init__(self, center: np.ndarray, normal: np.ndarray):
@@ -485,12 +758,18 @@ class VTKTubeLine(VTKEntity3D):
 from vtkmodules.vtkCommonColor import vtkNamedColors
 colors = vtkNamedColors()
 colors.SetColor('HighNoonSun', [255, 255, 251, 255])
-colors.SetColor('100W Tungsten', [255, 214, 170, 255])  #
+colors.SetColor('100W Tungsten', [255, 214, 170, 255])
+#
 class VTKVisualization(object):
-    def __init__(self):
+    def __init__(self, set_axes=False):
         self.renderer = vtk.vtkRenderer()
         self.renderer.SetBackground(colors.GetColor3d('Silver'))#1., 1., .9)
         self.renderer.ResetCamera()
+
+        if set_axes:
+            axes_actor = vtk.vtkAxesActor()
+            axes_actor.AxisLabelsOff()
+            self.renderer.AddActor(axes_actor)
 
         self.window = None
 
@@ -502,7 +781,7 @@ class VTKVisualization(object):
 
         self.renderer.SetActiveCamera(self.camera)
 
-    def add_entity(self, entity):
+    def add_entity(self, entity: VTKEntity3D):
         self.renderer.AddActor(entity.actor)
 
     def add_image(self, image):
@@ -542,13 +821,12 @@ class VTKVisualization(object):
             self.iren = self.window.GetInteractor()
 
     def show(self):
-        print("Showing!!")
+
         self.interactor.Start()
         self.iren.Initialize()
 
-    def write(self, filename, size=None):
+    def write(self, filename, background=None, size=None):
         self.window = vtk.vtkRenderWindow()
-        self.window.AddRenderer(self.renderer)
         self.window.SetOffScreenRendering(1)
         self.window.SetAlphaBitPlanes(1)
         if size is None:
@@ -556,10 +834,13 @@ class VTKVisualization(object):
         else:
             self.window.SetSize(size[0], size[1])
         windowToImageFilter = vtk.vtkWindowToImageFilter()
+        if background is None:
+            windowToImageFilter.SetInputBufferTypeToRGBA()
+        else:
+            self.renderer.SetBackground(background[0], background[1], background[2])
+        self.window.AddRenderer(self.renderer)
         windowToImageFilter.SetInput(self.window)
         windowToImageFilter.Update()
-        windowToImageFilter.SetInputBufferTypeToRGBA()
-
         writer = vtk.vtkPNGWriter()
         writer.SetFileName(filename)
         writer.SetInputConnection(windowToImageFilter.GetOutputPort())
